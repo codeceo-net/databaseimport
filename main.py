@@ -7,6 +7,7 @@
 import base64
 import datetime
 import os
+import platform
 import sqlite3
 import tkinter
 import tkinter as tk  # 装载tkinter模块,用于Python3
@@ -36,11 +37,14 @@ class MainFrame:
         self.win.update_idletasks()  #
         # self.root.iconbitmap('icon.ico')
         # 使用icon.py设置图标，兼容pyinstaller打包
-        tmp = open("tmp.ico", "wb+")
-        tmp.write(base64.b64decode(img))
-        tmp.close()
-        self.win.iconbitmap("tmp.ico")
-        os.remove("tmp.ico")
+        platformName = platform.platform().lower()
+        #window平台
+        if "win" in platformName:
+            tmp = open("tmp.ico", "wb+")
+            tmp.write(base64.b64decode(img))
+            tmp.close()
+            self.win.iconbitmap("tmp.ico")
+            os.remove("tmp.ico")
 
         # 导入主界面
         self.testMain()
@@ -141,8 +145,11 @@ class MainFrame:
         cursor = conn.execute("select name from sqlite_master where type = 'table' order by name;")
         for row in cursor.fetchall():
             tableName = row[0]
+            #print( tableName )
+            if "sqlite_sequence" == tableName or "sqlite_master" == tableName:
+                continue
             _cursor = conn.execute("drop table if exists " + tableName)
-        _cursor.close()
+            _cursor.close()
         cursor.close()
         conn.close()
         messagebox.showwarning("提示", "清空sqlite数据库表成功")
@@ -180,23 +187,68 @@ class MainFrame:
 
     # 处理数据库表
     def processTables(self, infodata):
+        sqlitePath = self.entryAdbPath.get().strip()
+        conn = sqlite3.connect(sqlitePath)  # 建立一个基于硬盘的数据库实例
+        length = len(infodata)
+        currentTableName = ''
+        dict = {}
         # 转成数组
-        for i in range(0, len(infodata)):  # 循环获取每行数据
-            print(infodata[i])
+        for i in range(0, length):  # 循环获取每行数据
+            # 获取表名称
+            if "table_" in infodata[i][0]:
+                currentTableNames = infodata[i][0].split("@")
+                if len(currentTableNames) > 1:
+                    currentTableName = str(currentTableNames[1]).strip()
+                    dict[currentTableName] = []
+                    continue
+            # 如果没有表名 继续轮询
+            if currentTableName is None or currentTableName == "":
+                continue
+            #存储数据
+            dict[currentTableName].append( tuple( infodata[i]) )
 
-        pass
+        #遍历字典
+        dictSql = {}
+        for table_name,table_field in dict.items():
+            #删除表
+            cursor = conn.execute("drop table if exists "+table_name.replace(" ","").strip())
+            cursor.close()
+
+            #组装创建表的数据
+            createSql = "create table if not exists "+(table_name.replace(" ","").strip())
+            createSql += "("
+
+            createSql += "Id INTEGER PRIMARY KEY autoincrement NOT NULL,"
+
+            for fields in table_field:
+                createSql += str(fields[1]).replace(" ","") + " TEXT,"
+
+            createSql = createSql.strip(",")
+
+            createSql += ");"
+
+            dictSql[table_name] = createSql
+
+        #创建表
+        for table_name,createSql in  dictSql.items():
+            cursor = conn.execute(createSql)
+            cursor.close()
+
+        #关闭数据库连接
+        conn.close()
+        messagebox.showwarning("提示", "导入数据库数据成功")
 
     #处理字典
     def processDict(self,infodata):
         #新建数据库表
         sqlitePath = self.entryAdbPath.get().strip()
         conn = sqlite3.connect(sqlitePath)  # 建立一个基于硬盘的数据库实例
-        cursor = conn.execute("drop table if exists Aio_Dict")
+        cursor = conn.execute("drop table if exists aio_dict")
         cursor.close()
         #创建表
-        createSql = '''create table if not exists  Aio_Dict
+        createSql = '''create table if not exists  aio_dict
         (
-        Ad_Id INTEGER constraint Aio_Dict_pk primary key autoincrement,
+        Ad_Id INTEGER  primary key autoincrement NOT NULL,
         Table_Name TEXT,
         Field_Name TEXT,
         Field_Des TEXT,
@@ -204,17 +256,6 @@ class MainFrame:
         Create_Time TEXT
         );'''
         cursor = conn.execute( createSql )
-        cursor.close()
-        #创建索引
-        createIndex = '''
-        create
-        unique
-        index
-        Aio_Dict_Ad_Id_uindex
-        on
-        Aio_Dict(Ad_Id);
-        '''
-        cursor = conn.execute( createIndex )
         cursor.close()
         # 转成数组向数据库插入数据
         currentTableName = ''
@@ -231,7 +272,7 @@ class MainFrame:
                     currentTableName = str( currentTableNames[1] ).strip()
                     continue
             #如果没有表名 继续轮询
-            if currentTableName is None:
+            if currentTableName is None or currentTableName == "":
                 continue
             #插入数据库
             if infodata[i][2] is not None and str(infodata[i][2]) != "nan":
