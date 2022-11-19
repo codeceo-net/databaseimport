@@ -22,4 +22,5 @@ cen_y = (length_1 - displayH) / 2
 size_xy = '%dx%d+%d+%d' % (displayW, displayH, cen_x, cen_y)
 base.geometry(f'{size_xy}')
 
+print( TkVersion )
 mainloop()
